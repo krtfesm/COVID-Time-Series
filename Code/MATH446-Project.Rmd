@@ -1,0 +1,415 @@
+---
+title: "MATH446 Final Project"
+author: "Kristin Fesmire, Connor Mennenoh, Veera Manohar Reddy Alavalapati"
+date: "2023-05-03"
+output: pdf_document
+---
+
+```{r}
+
+rm(list = ls())
+df <- read.csv('C:/Users/krtfe/Downloads/COVID-19_Daily_Cases__Deaths__and_Hospitalizations.csv')
+
+# update the original df to reformatted date format
+df$Date <- as.Date(df$Date, format = '%m/%d/%Y')
+
+# order data by timew
+dfT <- df[order(df$Date),]
+dfRMNA <- na.omit(dfT[1:4])
+
+# time series object
+dfTime <- ts(dfRMNA, start = 1)
+
+# segmenting the data
+dfRMNA[dfRMNA$Date < '2020-03-26', 'Range'] <- 1
+dfRMNA['2020-03-26' < dfRMNA$Date & dfRMNA$Date < '2021-08-20', 'Range'] <- 2
+dfRMNA['2021-08-20' < dfRMNA$Date & dfRMNA$Date < '2022-02-28', 'Range'] <- 3
+dfRMNA['2022-02-28' < dfRMNA$Date, 'Range'] <- 4
+head(dfRMNA)
+
+```
+
+
+
+#### PACF and ACF for the three initial time series. 
+#### ADF tests for the three initial time series also computed
+\
+```{r, warning = FALSE}
+
+library(tidyr)
+library(forecast)
+library(tseries)
+library(ggplot2)
+
+# ACF and PACF for cases
+acf(na.omit(df$Cases...Total), type = 'covariance', 
+    main = 'ACF for Cases Time Series')
+pacf(na.omit(df$Cases...Total), main = 'PACF for Cases Time Series')
+
+# ACF and PACF for deaths
+acf(na.omit(df$Deaths...Total), type = 'covariance', 
+    main = 'ACF for Deaths Time Series')
+pacf(na.omit(df$Deaths...Total), main = 'PACF for Deaths Time Series')
+
+# ACF and PACF for hospitalizations
+acf(na.omit(df$Hospitalizations...Total), type = 'covariance', 
+    main = 'ACF for Hospitalizations Time Series')
+pacf(na.omit(df$Hospitalizations...Total), 
+     main = 'PACF for Hospitalizations Time Series')
+
+# ADF test for stationarity, hospitalizations
+cat('ADF Test for Cases:\n')
+adf.test(dfRMNA$Hospitalizations...Total)
+
+# ADF test for stationarity, cases
+cat('\n\n\nADF Test for Deaths:\n')
+adf.test(dfRMNA$Cases...Total)
+
+# ADF test for stationarity, deaths
+cat('\n\n\nADF Test for Hospitalizations:\n')
+adf.test(dfRMNA$Deaths...Total)
+
+# ADF test for stationarity, cases
+cat('\n\n\nADF Test for Deaths, Differenced by 1:\n')
+adf.test(diff(dfRMNA$Deaths...Total, 1))
+
+```
+
+
+
+#### Initial Analysis:
+\
+```{r}
+
+library(ggcorrplot)
+
+corrP2 <- cor(df[c(2:4)], method = 'pearson', use = 'pairwise.complete.obs')
+ggcorrplot(corrP2, lab = TRUE,
+           colors = c('cornflowerblue', 'white', 'darkorchid3'),
+           title = 'Correlation Plot Comparing Hospitalizations, Deaths, and Cases')
+
+# visualization of 2x2 plots
+par(mfrow=c(2, 2))
+hist(dfRMNA$Cases...Total, breaks = 100,
+     main = 'Histogram of Total Cases',
+     xlab = 'Cases', col = 'cornflowerblue')
+hist(dfRMNA$Deaths...Total, breaks = 75,
+     main = 'Histogram of Total Deaths',
+     xlab = 'Deaths', col = 'cornflowerblue')
+hist(dfRMNA$Hospitalizations...Total, breaks = 100,
+     main = 'Histogram of Total Hospitalizations',
+     xlab = 'Hospitalizations', col = 'cornflowerblue')
+
+# visualization of 2x2 plots
+par(mfrow=c(2, 2))
+plot(dfRMNA$Date, dfRMNA$Cases...Total, type = 'l',
+     ylab = 'Total Cases', xlab = 'Date',
+     main = 'Total Cases, Time Series')
+plot(dfRMNA$Date, dfRMNA$Deaths...Total, type = 'l',
+     ylab = 'Total Deaths', xlab = 'Date',
+     main = 'Total Deaths, Time Series')
+plot(dfRMNA$Date, dfRMNA$Hospitalizations...Total, type = 'l',
+     ylab = 'Total Hospitalizations', xlab = 'Date',
+     main = 'Total Hospitalizations, Time Series')
+
+# visualization of 2x2 plots, for the four submodels
+par(mfrow=c(2, 2))
+plot(dfRMNA[dfRMNA$Range == 1,]$Date, 
+     dfRMNA[dfRMNA$Range == 1,]$Cases...Total, type = 'l',
+     ylab = 'Total Cases', xlab = 'Date',
+     main = 'Total Cases Time Series, Segment 1')
+plot(dfRMNA[dfRMNA$Range == 2,]$Date, 
+     dfRMNA[dfRMNA$Range == 2,]$Cases...Total, type = 'l',
+     ylab = 'Total Cases', xlab = 'Date',
+     main = 'Total Cases Time Series, Segment 2')
+plot(dfRMNA[dfRMNA$Range == 3,]$Date, 
+     dfRMNA[dfRMNA$Range == 3,]$Cases...Total, type = 'l',
+     ylab = 'Total Cases', xlab = 'Date',
+     main = 'Total Cases Time Series, Segment 3')
+plot(dfRMNA[dfRMNA$Range == 4,]$Date, 
+     dfRMNA[dfRMNA$Range == 4,]$Cases...Total, type = 'l',
+     ylab = 'Total Cases', xlab = 'Date',
+     main = 'Total Cases Time Series, Segment 4')
+
+
+
+# paired ACF plots for the initial three time series
+par(mfrow=c(2, 2))
+pacf(na.omit(dfRMNA$Cases...Total), main = 'PACF, Cases')
+pacf(na.omit(dfRMNA$Deaths...Total), main = 'PACF, Deaths')
+pacf(na.omit(dfRMNA$Hospitalizations...Total), main = 'PACF, Hospitalizations')
+
+```
+
+
+
+#### ACF and PACF by segments
+\
+```{r, warning = FALSE}
+
+# ACF and PACF for Cases, time segment 1
+acf(na.omit(dfRMNA[dfRMNA$Range == 1,]$Cases...Total), 
+    type = 'covariance', main = 'ACF for Cases Time Series, Segment 1')
+pacf(na.omit(dfRMNA[dfRMNA$Range == 1,]$Cases...Total), 
+     main = 'PACF for Cases Time Series, Segment 1')
+
+# ACF and PACF for Cases, time segment 2
+acf(na.omit(dfRMNA[dfRMNA$Range == 2,]$Cases...Total), 
+    type = 'covariance', main = 'ACF for Cases Time Series, Segment 2')
+pacf(na.omit(dfRMNA[dfRMNA$Range == 2,]$Cases...Total), 
+     main = 'PACF for Cases Time Series, Segment 2')
+
+# ACF and PACF for Cases, time segment 3
+acf(na.omit(dfRMNA[dfRMNA$Range == 3,]$Cases...Total), 
+    type = 'covariance', 
+    main = 'ACF for Cases Time Series, Segment 3')
+pacf(na.omit(dfRMNA[dfRMNA$Range == 3,]$Cases...Total), 
+    main = 'PACF for Cases Time Series, Segment 3')
+
+# ACF and PACF for Cases, time segment 4
+acf(na.omit(dfRMNA[dfRMNA$Range == 4,]$Cases...Total), 
+    type = 'covariance', 
+    main = 'ACF for Cases Time Series, Segment 4')
+pacf(na.omit(dfRMNA[dfRMNA$Range == 4,]$Cases...Total), 
+    main = 'PACF for Cases Time Series, Segment 4')
+
+
+# combined visualizations
+par(mfrow=c(2, 2))
+pacf(na.omit(dfRMNA[dfRMNA$Range == 1,]$Cases...Total), 
+     main = 'PACF for Cases Time Series, Segment 1')
+pacf(na.omit(dfRMNA[dfRMNA$Range == 2,]$Cases...Total), 
+     main = 'PACF for Cases Time Series, Segment 2')
+pacf(na.omit(dfRMNA[dfRMNA$Range == 3,]$Cases...Total), 
+     main = 'PACF for Cases Time Series, Segment 3')
+pacf(na.omit(dfRMNA[dfRMNA$Range == 4,]$Cases...Total), 
+     main = 'PACF for Cases Time Series, Segment 4')
+
+
+```
+
+
+
+#### Plotting the qqnorm plots.
+\
+```{r, warning = FALSE}
+
+# paired qqnorm plots for the first three time series
+par(mfrow=c(1, 3))
+qqnorm(dfRMNA$Cases...Total, main = 'Normal Q-Q Plot, Cases')
+qqline(dfRMNA$Cases...Total)
+qqnorm(dfRMNA$Deaths...Total, main = 'Normal Q-Q Plot, Deaths')
+qqline(dfRMNA$Deaths...Total)
+qqnorm(dfRMNA$Hospitalizations...Total, main = 'Normal Q-Q Plot, Hospitalizations')
+qqline(dfRMNA$Hospitalizations...Total)
+
+# paired qqnorm plots for the segmented cases time series
+par(mfrow=c(2, 2))
+qqnorm(dfRMNA[dfRMNA$Range == 1,]$Cases...Total, 
+       main = 'Normal Q-Q Plot, Cases Segment 1')
+qqline(dfRMNA[dfRMNA$Range == 1,]$Cases...Total)
+qqnorm(dfRMNA[dfRMNA$Range == 2,]$Cases...Total, 
+       main = 'Normal Q-Q Plot, Cases Segment 2')
+qqline(dfRMNA[dfRMNA$Range == 2,]$Cases...Total)
+qqnorm(dfRMNA[dfRMNA$Range == 3,]$Cases...Total, 
+       main = 'Normal Q-Q Plot, Cases Segment 3')
+qqline(dfRMNA[dfRMNA$Range == 3,]$Cases...Total)
+qqnorm(dfRMNA[dfRMNA$Range == 4,]$Cases...Total, 
+       main = 'Normal Q-Q Plot, Cases Segment 4')
+qqline(dfRMNA[dfRMNA$Range == 4,]$Cases...Total)
+
+```
+
+
+
+#### ADF tests for the segmented time series. 
+\
+```{r, warning = FALSE}
+
+
+# ADF test for stationarity, hospitalizations
+cat('ADF Test for Cases, Segment 1:\n')
+adf.test(na.omit(dfRMNA[dfRMNA$Range == 1,]$Cases...Total))
+
+# ADF test for stationarity, cases
+cat('\n\n\nADF Test for Cases, Segment 2:\n')
+adf.test(na.omit(dfRMNA[dfRMNA$Range == 2,]$Cases...Total))
+
+# ADF test for stationarity, deaths
+cat('\n\n\nADF Test for Cases, Segment 3:\n')
+adf.test(na.omit(dfRMNA[dfRMNA$Range == 3,]$Cases...Total))
+
+# ADF test for stationarity, deaths
+cat('\n\n\nADF Test for Cases, Segment 4:\n')
+adf.test(na.omit(dfRMNA[dfRMNA$Range == 4,]$Cases...Total))
+
+
+```
+
+
+
+#### Basic Visualizations of the three time series
+\
+```{r}
+
+plot(dfT$Date, dfT$Hospitalizations...Total, type = 'l',
+     ylab = 'Total Amount of People', xlab = 'Date', 
+     ylim = c(0, 10000), col = 3, main = 'Time Series, Plotted Together')
+lines(dfT$Date, dfT$Cases...Total, type = 'l', col = 4)
+lines(dfT$Date, dfT$Deaths...Total, type = 'l', col = 2)
+legend('topleft', c('Hospitalizations', 'Cases', 'Deaths'), lty = 1,
+       col = c(3, 4, 2))
+
+
+
+plot(dfT$Date, dfT$Hospitalizations...Total, type = 'l',
+     ylab = 'Total Amount of People', xlab = 'Date', 
+     ylim = c(0, 500), col = 3, 
+     main = 'Time Series, Plotted Together and Zoomed in')
+lines(dfT$Date, dfT$Cases...Total, type = 'l', col = 4)
+lines(dfT$Date, dfT$Deaths...Total, type = 'l', col = 2)
+legend('topleft', c('Hospitalizations', 'Cases', 'Deaths'), lty = 1,
+       col = c(3, 4, 2))
+```
+
+
+
+#### Lag information for each of the plots
+\
+
+```{r, warning = FALSE}
+library(ggplot2)
+
+# Lags for cases
+hospTime <- window(ts(dfT, start = 1)[,c(1,2)])
+
+# zoom out as much as possible, it'll be difficult to see otherwise
+gglagplot(hospTime)
+
+# Lags for deaths
+hospTime <- window(ts(dfT, start = 1)[,c(1,3)])
+
+# zoom out as much as possible, it'll be difficult to see otherwise
+gglagplot(hospTime)
+
+# Lags for hospitalizations
+hospTime <- window(ts(dfT, start = 1)[,c(1,4)])
+
+# zoom out as much as possible, it'll be difficult to see otherwise
+gglagplot(hospTime)
+
+
+```
+
+
+
+#### Visualization of the dataset, for the introduction
+\
+```{r}
+
+library(RGraphics)
+library(gridExtra)
+library(grid)
+
+p1 <- tableGrob(head(dfT[1:4]))
+grid.draw(p1)
+
+```
+
+
+
+#### Models for the three time series and the segmented time series
+\
+```{r}
+library(MTS)
+
+# models for each of the subsetted time periods and dates for cases
+cat(paste('Time series for Total Cases:\n\n'))
+casesARIMA <- auto.arima(dfRMNA$Cases...Total)
+summary(casesARIMA)
+cat(paste('\n\n\nTime series for Total Cases, time period 1:\n\n'))
+casesUpARIMA <- auto.arima(dfRMNA[dfRMNA$Range == 1,]$Cases...Total)
+summary(casesUpARIMA)
+cat(paste('\n\n\nTime series for Total Cases, time period 2:\n\n'))
+casesUp1ARIMA <- auto.arima(dfRMNA[dfRMNA$Range == 2,]$Cases...Total)
+summary(casesUp1ARIMA)
+cat(paste('\n\n\nTime series for Total Cases, time period 3:\n\n'))
+casesUp2ARIMA <- auto.arima(dfRMNA[dfRMNA$Range == 3,]$Cases...Total)
+summary(casesUp2ARIMA)
+cat(paste('\n\n\nTime series for Total Cases, time period 4:\n\n'))
+casesUp3ARIMA <- auto.arima(dfRMNA[dfRMNA$Range == 4,]$Cases...Total)
+summary(casesUp3ARIMA)
+
+# models for each of the subsetted time periods and dates for deaths
+cat(paste('\n\n\n\nTime series for Total Deaths:\n\n'))
+deathsARIMA <- auto.arima(dfRMNA$Deaths...Total, stationary = F)
+summary(deathsARIMA)
+
+# models for each of the subsetted time periods and dates for hospitalizations
+cat(paste('\n\n\n\nTime series for Total Hospitalizations:\n\n'))
+hospARIMA <- auto.arima(dfRMNA$Hospitalizations...Total)
+summary(hospARIMA)
+
+# dataframe for the errors:
+
+
+
+```
+
+
+
+#### Checking the residuals of the models
+\
+```{r}
+library(MTS)
+library(MASS)
+
+# ARIMA for entire cases time series
+checkresiduals(casesARIMA)
+
+# ARIMA for segmented cases time series, segment 1
+checkresiduals(casesUpARIMA)
+
+# ARIMA for segmented cases time series, segment 2
+checkresiduals(casesUp1ARIMA)
+
+# ARIMA for segmented cases time series, segment 3
+checkresiduals(casesUp2ARIMA)
+
+# ARIMA for segmented cases time series, segment 4
+checkresiduals(casesUp3ARIMA)
+
+# ARIMA for entire cases time series
+checkresiduals(deathsARIMA)
+
+# ARIMA for entire cases time series
+checkresiduals(hospARIMA)
+
+
+
+
+```
+
+
+
+#### Forecasting of the four submodels
+\
+```{r, warning = FALSE}
+
+# paired forecast plots for the segmented cases time series
+par(mfrow=c(2, 2))
+plot(forecast(casesUpARIMA, h = 20), 
+     main = 'Forecast of Cases, Segment 1')
+
+plot(forecast(casesUp1ARIMA, h = 100), 
+     main = 'Forecast of Cases, Segment 2')
+
+plot(forecast(casesUp2ARIMA, h = 100), 
+     main = 'Forecast of Cases, Segment 3')
+
+plot(forecast(casesUp3ARIMA, h = 100), 
+     main = 'Forecast of Cases, Segment 4')
+
+```
+
+
